@@ -14,6 +14,7 @@ package net.mamoe.mirai.event
 import kotlinx.coroutines.*
 import net.mamoe.mirai.Bot
 import net.mamoe.mirai.event.events.BotEvent
+import net.mamoe.mirai.utils.DeprecatedSinceMirai
 import kotlin.coroutines.resume
 import kotlin.reflect.KClass
 
@@ -28,16 +29,17 @@ import kotlin.reflect.KClass
  * @see syncFromEvent 挂起当前协程, 并尝试从事件中同步一个值
  *
  * @throws TimeoutCancellationException 在超时后抛出.
+ * @since 2.10
  */
 @JvmSynthetic
-public suspend inline fun <reified E : Event> nextEvent(
+public suspend inline fun <reified E : Event> EventChannel<*>.nextEvent(
     timeoutMillis: Long = -1,
     priority: EventPriority = EventPriority.MONITOR,
-    crossinline filter: (E) -> Boolean = { true }
+    noinline filter: suspend (E) -> Boolean = { true }
 ): E {
     require(timeoutMillis == -1L || timeoutMillis > 0) { "timeoutMillis must be -1 or > 0" }
     return withTimeoutOrCoroutineScope(timeoutMillis) {
-        nextEventImpl(E::class, this, priority, filter)
+        nextEventImpl(this@nextEvent, E::class, this, priority, filter)
     }
 }
 
@@ -52,35 +54,104 @@ public suspend inline fun <reified E : Event> nextEvent(
  * @see syncFromEvent 挂起当前协程, 并尝试从事件中同步一个值
  *
  * @return 事件实例, 在超时后返回 `null`
+ * @since 2.10
  */
 @JvmSynthetic
+public suspend inline fun <reified E : Event> EventChannel<*>.nextEventOrNull(
+    timeoutMillis: Long,
+    priority: EventPriority = EventPriority.MONITOR,
+    noinline filter: suspend (E) -> Boolean = { true }
+): E? {
+    return withTimeoutOrNull(timeoutMillis) {
+        nextEventImpl(this@nextEventOrNull, E::class, this, priority, filter)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////
+// deprecated
+///////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * 挂起当前协程, 直到监听到事件 [E] 的广播并通过 [filter], 返回这个事件实例.
+ *
+ * ### 已弃用
+ *
+ * 该函数相当于 [GlobalEventChannel.nextEvent].
+ * 不一定需要将所有被弃用的 [nextEvent] 都换成 `GlobalEventChannel.nextEvent`, 请根据情况选择合适的 [EventChannel].
+ *
+ * @param timeoutMillis 超时. 单位为毫秒. `-1` 为不限制.
+ * @param filter 过滤器. 返回 `true` 时表示得到了需要的实例. 返回 `false` 时表示继续监听
+ *
+ * @see EventChannel.subscribe 普通地监听一个事件
+ * @see syncFromEvent 挂起当前协程, 并尝试从事件中同步一个值
+ *
+ * @throws TimeoutCancellationException 在超时后抛出.
+ */
+@JvmSynthetic
+@DeprecatedSinceMirai(warningSince = "2.10.0-RC")
+@Deprecated(
+    "Use GlobalEventChannel.nextEvent",
+    ReplaceWith("GlobalEventChannel.nextEvent(timeoutMillis, priority, filter)"),
+    level = DeprecationLevel.WARNING
+)
+public suspend inline fun <reified E : Event> nextEvent(
+    timeoutMillis: Long = -1,
+    priority: EventPriority = EventPriority.MONITOR,
+    crossinline filter: (E) -> Boolean = { true }
+): E = GlobalEventChannel.nextEvent(timeoutMillis, priority) { filter(it) }
+
+/**
+ * 挂起当前协程, 直到监听到事件 [E] 的广播并通过 [filter], 返回这个事件实例.
+ *
+ * ### 已弃用
+ *
+ * 该函数相当于 [GlobalEventChannel.nextEvent].
+ * 不一定需要将所有被弃用的 [nextEvent] 都换成 `GlobalEventChannel.nextEvent`, 请根据情况选择合适的 [EventChannel].
+ *
+ * @param timeoutMillis 超时. 单位为毫秒.
+ * @param filter 过滤器. 返回 `true` 时表示得到了需要的实例. 返回 `false` 时表示继续监听
+ *
+ * @see EventChannel.subscribe 普通地监听一个事件
+ * @see syncFromEvent 挂起当前协程, 并尝试从事件中同步一个值
+ *
+ * @return 事件实例, 在超时后返回 `null`
+ */
+@JvmSynthetic
+@DeprecatedSinceMirai(warningSince = "2.10.0-RC")
+@Deprecated(
+    "Use GlobalEventChannel.nextEvent",
+    ReplaceWith("GlobalEventChannel.nextEventOrNull(timeoutMillis, priority, filter)"),
+    level = DeprecationLevel.WARNING
+)
 public suspend inline fun <reified E : Event> nextEventOrNull(
     timeoutMillis: Long,
     priority: EventPriority = EventPriority.MONITOR,
     crossinline filter: (E) -> Boolean = { true }
-): E? {
-    return withTimeoutOrNull(timeoutMillis) {
-        nextEventImpl(E::class, this, priority, filter)
-    }
-}
+): E? = GlobalEventChannel.nextEventOrNull(timeoutMillis, priority) { filter(it) }
 
 
-@JvmSynthetic
+///////////////////////////////////////////////////////////////////////////
+// internals
+///////////////////////////////////////////////////////////////////////////
+
 @PublishedApi
-internal suspend inline fun <E : Event> nextEventImpl(
+internal suspend fun <E : Event> nextEventImpl(
+    channel: EventChannel<Event>,
     eventClass: KClass<E>,
     coroutineScope: CoroutineScope,
     priority: EventPriority,
-    crossinline filter: (E) -> Boolean
+    filter: suspend (E) -> Boolean
 ): E = suspendCancellableCoroutine { cont ->
-    val listener = coroutineScope.globalEventChannel()
-        .parentJob(coroutineScope.coroutineContext[Job])
+    var listener: Listener<E>? = null
+    listener = channel.parentScope(coroutineScope)
         .subscribe(eventClass, priority = priority) {
             if (!filter(this)) return@subscribe ListeningStatus.LISTENING
 
             try {
                 cont.resume(this)
-            } catch (e: Exception) {
+            } finally {
+                listener?.complete() // ensure completed on exceptions
             }
             return@subscribe ListeningStatus.STOPPED
         }
@@ -98,6 +169,7 @@ internal inline fun <BaseEvent : Event> EventChannel<BaseEvent>.parentJob(job: J
 
 @JvmSynthetic
 @PublishedApi
+@Deprecated("For binary compatibility", level = DeprecationLevel.HIDDEN)
 internal suspend inline fun <E : BotEvent> nextBotEventImpl(
     bot: Bot,
     eventClass: KClass<E>,
@@ -109,7 +181,7 @@ internal suspend inline fun <E : BotEvent> nextBotEventImpl(
         .subscribe(eventClass, priority = priority) {
             try {
                 if (this.bot == bot) cont.resume(this)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
             }
             return@subscribe ListeningStatus.STOPPED
         }
@@ -121,10 +193,10 @@ internal suspend inline fun <E : BotEvent> nextBotEventImpl(
 
 @JvmSynthetic
 @PublishedApi
-internal suspend inline fun <R> withTimeoutOrCoroutineScope(
+internal suspend fun <R> withTimeoutOrCoroutineScope(
     timeoutMillis: Long,
     useCoroutineScope: CoroutineScope? = null,
-    noinline block: suspend CoroutineScope.() -> R
+    block: suspend CoroutineScope.() -> R
 ): R {
     require(timeoutMillis == -1L || timeoutMillis > 0) { "timeoutMillis must be -1 or > 0 " }
 

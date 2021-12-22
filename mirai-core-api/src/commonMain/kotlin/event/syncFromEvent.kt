@@ -41,11 +41,11 @@ public suspend inline fun <reified E : Event, R : Any> syncFromEvent(
 
     return if (timeoutMillis == -1L) {
         coroutineScope {
-            syncFromEventImpl<E, R>(E::class, this, priority, mapper)
+            syncFromEventImpl(E::class, this, priority, mapper)
         }
     } else {
         withTimeout(timeoutMillis) {
-            syncFromEventImpl<E, R>(E::class, this, priority, mapper)
+            syncFromEventImpl(E::class, this, priority, mapper)
         }
     }
 }
@@ -73,7 +73,7 @@ public suspend inline fun <reified E : Event, R : Any> syncFromEventOrNull(
     require(timeoutMillis > 0) { "timeoutMillis must be > 0" }
 
     return withTimeoutOrNull(timeoutMillis) {
-        syncFromEventImpl<E, R>(E::class, this, priority, mapper)
+        syncFromEventImpl(E::class, this, priority, mapper)
     }
 }
 

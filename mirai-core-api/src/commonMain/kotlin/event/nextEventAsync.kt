@@ -12,6 +12,7 @@
 package net.mamoe.mirai.event
 
 import kotlinx.coroutines.*
+import net.mamoe.mirai.utils.DeprecatedSinceMirai
 import net.mamoe.mirai.utils.MiraiExperimentalApi
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -32,20 +33,23 @@ import kotlin.coroutines.EmptyCoroutineContext
  * @since 2.2
  */
 @JvmSynthetic
+@Deprecated(
+    "Please use `async` with `nextEvent` manually.",
+    ReplaceWith(
+        "async(coroutineContext) { globalEventChannel(coroutineContext).nextEvent(timeoutMillis, priority, filter) }",
+        "kotlinx.coroutines.async", "net.mamoe.mirai.event.globalEventChannel", "net.mamoe.mirai.event.nextEvent"
+    ),
+    level = DeprecationLevel.WARNING
+)
+@DeprecatedSinceMirai(warningSince = "2.10.0-RC")
 @MiraiExperimentalApi
 public inline fun <reified E : Event> CoroutineScope.nextEventAsync(
     timeoutMillis: Long = -1,
     priority: EventPriority = EventPriority.MONITOR,
     coroutineContext: CoroutineContext = EmptyCoroutineContext,
     crossinline filter: (E) -> Boolean = { true }
-): Deferred<E> {
-    require(timeoutMillis == -1L || timeoutMillis > 0) { "timeoutMillis must be -1 or > 0" }
-    return async(coroutineContext) {
-        withTimeoutOrCoroutineScope(timeoutMillis, this) {
-            nextEventImpl(E::class, this, priority, filter)
-        }
-    }
-}
+): Deferred<E> =
+    async(coroutineContext) { globalEventChannel(coroutineContext).nextEvent(timeoutMillis, priority) { filter(it) } }
 
 
 /**
@@ -63,6 +67,15 @@ public inline fun <reified E : Event> CoroutineScope.nextEventAsync(
  * @since 2.2
  */
 @MiraiExperimentalApi
+@Deprecated(
+    "Please use `async` with `nextEventOrNull` manually.",
+    ReplaceWith(
+        "async(coroutineContext) { globalEventChannel(coroutineContext).nextEventOrNull(timeoutMillis, priority, filter) }",
+        "kotlinx.coroutines.async", "net.mamoe.mirai.event.globalEventChannel", "net.mamoe.mirai.event.nextEvent"
+    ),
+    level = DeprecationLevel.WARNING
+)
+@DeprecatedSinceMirai(warningSince = "2.10.0-RC")
 @JvmSynthetic
 public inline fun <reified E : Event> CoroutineScope.nextEventOrNullAsync(
     timeoutMillis: Long,
@@ -72,7 +85,7 @@ public inline fun <reified E : Event> CoroutineScope.nextEventOrNullAsync(
 ): Deferred<E?> {
     return async(coroutineContext) {
         withTimeoutOrNull(timeoutMillis) {
-            nextEventImpl(E::class, this, priority, filter)
+            nextEventImpl(globalEventChannel(coroutineContext), E::class, this, priority) { filter(it) }
         }
     }
 }
