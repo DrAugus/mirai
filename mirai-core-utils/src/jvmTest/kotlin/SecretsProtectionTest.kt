@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertTrue
 
 internal class SecretsProtectionTest {
@@ -21,10 +22,14 @@ internal class SecretsProtectionTest {
         repeat(500) {
             launch {
                 val data = ByteArray((1..255).random()) { (0..255).random().toByte() }
-                val buffer = SecretsProtection.escape(data).readBytes()
-                assertTrue { data.contentEquals(buffer) }
+                val buffer = SecretsProtection.escape(data)
+                assertContentEquals(
+                    data, buffer.duplicate().readBytes()
+                )
                 delay(100)
-                assertTrue { data.contentEquals(buffer) }
+                assertContentEquals(
+                    data, buffer.duplicate().readBytes()
+                )
             }
         }
     }
